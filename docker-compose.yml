@@ -6,7 +6,7 @@ services:
     platform: linux/arm64
     container_name: rustom_mongodb
     ports:
-      - "27017:27017"
+      - "${MONGO_PORT}:27017"
     env_file:
       - .env.production
     environment:
@@ -51,6 +51,7 @@ services:
 
   api:
     image: hmtanbir/rustom-mongo:1.0.0
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile

@@ -59,10 +59,11 @@ pub async fn init_db(config: &AppConfig) -> Result<Database, AppError> {
                 if let mongodb::error::ErrorKind::Write(mongodb::error::WriteFailure::WriteError(
                     write_error,
                 )) = &*e.kind
-                    && write_error.code == 11000 {
-                        tracing::info!("Seed user already exists due to concurrent insert.");
-                        return Ok(db);
-                    }
+                    && write_error.code == 11000
+                {
+                    tracing::info!("Seed user already exists due to concurrent insert.");
+                    return Ok(db);
+                }
                 return Err(AppError::Unexpected(anyhow::anyhow!(
                     "Failed to insert seed user: {}",
                     e
