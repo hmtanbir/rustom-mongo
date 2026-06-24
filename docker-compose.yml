@@ -1,18 +1,20 @@
 name: 'rustom'
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: rustom_postgres
+  mongodb:
+    image: mongo:4.4
+    platform: linux/arm64
+    container_name: rustom_mongodb
+    ports:
+      - "27017:27017"
     env_file:
       - .env.production
+    environment:
+      - GLIBC_TUNABLES=glibc.pthread.rseq=1
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - mongodb_data:/data/db
 
   redis:
     image: redis:alpine
@@ -29,13 +31,16 @@ services:
       retries: 5
 
   rabbitmq:
-    image: rabbitmq:3-management-alpine
+    image: rabbitmq:alpine
     container_name: rustom_rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"
     env_file:
       - .env.production
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -45,7 +50,7 @@ services:
       retries: 5
 
   api:
-    image: hmtanbir/rustom:1.0.0
+    image: hmtanbir/rustom-mongo:1.0.0
     build:
       context: .
       dockerfile: Dockerfile
@@ -55,18 +60,23 @@ services:
     env_file:
       - .env.production
     environment:
-      - POSTGRES_HOST=postgres
+      - MONGO_HOST=mongodb
       - REDIS_HOST=redis
       - RABBITMQ_HOST=rabbitmq
     depends_on:
-      postgres:
-        condition: service_healthy
+      mongodb:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
 
 volumes:
-  postgres_data:
+  mongodb_data:
   redis_data:
   rabbitmq_data:
+
+networks:
+  default:
+    name: "rustom-mongo"
+    driver: bridge
