@@ -1,0 +1,73 @@
+    Checking crypto-common v0.1.7
+    Checking security-framework-sys v2.17.0
+    Checking rustix v1.1.4
+    Checking fnv v1.0.7
+    Checking try-lock v0.2.5
+    Checking system-configuration-sys v0.6.0
+    Checking sync_wrapper v1.0.2
+    Checking core-foundation v0.10.1
+    Checking digest v0.10.7
+    Checking cipher v0.4.4
+    Checking h2 v0.4.14
+    Checking want v0.3.1
+    Checking system-configuration v0.7.0
+    Checking security-framework v2.11.1
+    Checking ipnet v2.12.0
+    Checking security-framework v3.7.0
+    Checking sha2 v0.10.9
+    Checking hmac v0.12.1
+    Checking aes v0.8.4
+    Checking salsa20 v0.10.2
+    Checking cbc v0.1.2
+    Checking pbkdf2 v0.12.2
+    Checking rc2 v0.8.1
+    Checking scrypt v0.11.0
+    Checking des v0.8.1
+    Checking sha1 v0.10.6
+    Checking pkcs12 v0.1.0
+    Checking pkcs5 v0.7.1
+    Checking tower v0.5.3
+    Checking universal-hash v0.5.1
+    Checking opaque-debug v0.3.1
+    Checking polyval v0.6.2
+    Checking sqlx-core v0.8.6
+    Checking p12-keystore v0.1.5
+    Checking axum-core v0.4.5
+    Checking rustls-native-certs v0.7.3
+    Checking rustls-connector v0.20.2
+    Checking rust-embed-utils v8.11.0
+    Checking hkdf v0.12.4
+    Checking tcp-stream v0.28.0
+    Checking md-5 v0.10.6
+    Checking rust-embed v8.11.0
+    Checking tower-http v0.6.11
+   Compiling utoipa-swagger-ui v8.1.0
+    Checking amq-protocol-tcp v7.2.3
+    Checking ghash v0.5.1
+    Checking ctr v0.9.2
+    Checking amq-protocol v7.2.3
+    Checking blake2 v0.10.6
+    Checking aead v0.5.2
+    Checking aes-gcm v0.10.3
+    Checking argon2 v0.5.3
+    Checking polling v3.11.0
+    Checking tempfile v3.27.0
+    Checking async-io v2.6.0
+    Checking native-tls v0.2.18
+error: failed to run custom build command for `utoipa-swagger-ui v8.1.0`
+
+Caused by:
+  process didn't exit successfully: `/Users/hmtanbir/www/projects/open-source/rustom/target/debug/build/utoipa-swagger-ui-529587ad6b4bb257/build-script-build` (exit status: 101)
+  --- stdout
+  OUT_DIR: /Users/hmtanbir/www/projects/open-source/rustom/target/debug/build/utoipa-swagger-ui-5ba7a6fef43ca573/out
+  SWAGGER_UI_DOWNLOAD_URL: https://github.com/swagger-api/swagger-ui/archive/refs/tags/v5.17.14.zip
+  cargo:rerun-if-env-changed=SWAGGER_UI_DOWNLOAD_URL
+  start download to : "/Users/hmtanbir/www/projects/open-source/rustom/target/debug/build/utoipa-swagger-ui-5ba7a6fef43ca573/out/v5.17.14.zip"
+  reqwest feature: Ok("1")
+
+  --- stderr
+
+  thread 'main' (1014846) panicked at /Users/hmtanbir/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utoipa-swagger-ui-8.1.0/build.rs:219:50:
+  failed to download Swagger UI: reqwest::Error { kind: Request, url: "https://github.com/swagger-api/swagger-ui/archive/refs/tags/v5.17.14.zip", source: hyper_util::client::legacy::Error(Connect, ConnectError("dns error", Custom { kind: Uncategorized, error: "failed to lookup address information: nodename nor servname provided, or not known" })) }
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+warning: build failed, waiting for other jobs to finish...
