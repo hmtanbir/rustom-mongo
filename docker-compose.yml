@@ -7,7 +7,7 @@ services:
     ports:
       - "${MONGO_PORT}:27017"
     env_file:
-      - .env.production
+      - .env
     environment:
       - GLIBC_TUNABLES=glibc.pthread.rseq=1
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
@@ -20,7 +20,7 @@ services:
     container_name: rustom_redis
     command: ["sh", "-c", "redis-server $${REDIS_PASSWORD:+--requirepass \"$$REDIS_PASSWORD\"}"]
     env_file:
-      - .env.production
+      - .env
     volumes:
       - redis_data:/data
     healthcheck:
@@ -36,7 +36,7 @@ services:
       - "5672:5672"
       - "15672:15672"
     env_file:
-      - .env.production
+      - .env
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
@@ -58,7 +58,7 @@ services:
     ports:
       - "${PORT}:3000"
     env_file:
-      - .env.production
+      - .env
     environment:
       - MONGO_HOST=mongodb
       - REDIS_HOST=redis
