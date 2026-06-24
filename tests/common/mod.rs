@@ -54,7 +54,10 @@ pub async fn setup_app() -> (Router, Database) {
         let user = std::env::var("MONGO_USER").unwrap_or_default();
         let pass = std::env::var("MONGO_PASSWORD").unwrap_or_default();
         if !user.is_empty() && !pass.is_empty() {
-            format!("mongodb://{}:{}@{}:{}/{}", user, pass, host, port, db_name)
+            format!(
+                "mongodb://{}:{}@{}:{}/{}?authSource=admin",
+                user, pass, host, port, db_name
+            )
         } else {
             format!("mongodb://{}:{}/{}", host, port, db_name)
         }

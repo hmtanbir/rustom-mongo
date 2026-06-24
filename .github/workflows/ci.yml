@@ -36,7 +36,7 @@ jobs:
           - 27017:27017
         env:
           MONGO_INITDB_ROOT_USERNAME: mongodb
-          MONGO_INITDB_ROOT_PASSWORD: 18b22cdbb56a5b6e025c83a834a64a27fcecd6f5c8d4e442121d9295a976f975
+          MONGO_INITDB_ROOT_PASSWORD: mongodb
         options: >-
           --health-cmd "mongo --eval 'db.runCommand({ping: 1})' --quiet"
           --health-interval 10s
@@ -76,7 +76,10 @@ jobs:
       - name: Run tests
         env:
           APP_ENV: test
+          DATABASE_URL: mongodb://mongodb:mongodb@localhost:27017/rustom_test
           REDIS_PASSWORD: ""
           RABBITMQ_USER: guest
           RABBITMQ_PASSWORD: guest
+          API_PAYLOAD_ENCRYPTION_ENABLED: "false"
+          API_GATEWAY_KEY: API_GATEWAY
         run: cargo test
