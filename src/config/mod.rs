@@ -10,7 +10,7 @@ pub struct AppConfig {
     pub host: String,
     /// The port on which the Axum server will listen.
     pub port: u16,
-    /// Connection string for PostgreSQL database.
+    /// Connection string for MongoDB database.
     pub database_url: String,
     /// Connection string for Redis caching server.
     pub redis_url: String,
@@ -40,18 +40,27 @@ impl AppConfig {
 
         let mut builder = config::Config::builder().add_source(config::Environment::default());
 
-        // Construct database URL from individual POSTGRES_* env vars if available
-        if let (Ok(user), Ok(pass), Ok(db), Ok(host), Ok(port)) = (
-            std::env::var("POSTGRES_USER"),
-            std::env::var("POSTGRES_PASSWORD"),
-            std::env::var("POSTGRES_DB"),
-            std::env::var("POSTGRES_HOST"),
-            std::env::var("POSTGRES_PORT"),
+        // Construct database URL from individual MONGO_* env vars if available
+        if let (Ok(host), Ok(port), Ok(db)) = (
+            std::env::var("MONGO_HOST"),
+            std::env::var("MONGO_PORT"),
+            std::env::var("MONGO_DB"),
         ) {
-            builder = builder.set_default(
-                "database_url",
-                format!("postgres://{}:{}@{}:{}/{}", user, pass, host, port, db),
-            )?;
+            let uri = if let (Ok(user), Ok(pass)) =
+                (std::env::var("MONGO_USER"), std::env::var("MONGO_PASSWORD"))
+            {
+                if !user.is_empty() && !pass.is_empty() {
+                    format!(
+                        "mongodb://{}:{}@{}:{}/{}?authSource=admin&tls=false",
+                        user, pass, host, port, db
+                    )
+                } else {
+                    format!("mongodb://{}:{}/{}?tls=false", host, port, db)
+                }
+            } else {
+                format!("mongodb://{}:{}/{}?tls=false", host, port, db)
+            };
+            builder = builder.set_default("database_url", uri)?;
         }
 
         // Construct Redis URL from individual REDIS_* env vars if available

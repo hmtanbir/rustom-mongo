@@ -4,7 +4,8 @@ use argon2::{
 };
 use chrono::Utc;
 use jsonwebtoken::{EncodingKey, Header, encode};
-use sqlx::PgPool;
+use mongodb::Database;
+use mongodb::bson::doc;
 use uuid::Uuid;
 
 use crate::config::AppConfig;
@@ -18,13 +19,13 @@ use crate::services::cache::DynCacheService;
 
 #[derive(Clone)]
 pub struct UserService {
-    db: PgPool,
+    db: Database,
     cache: DynCacheService,
     config: AppConfig,
 }
 
 impl UserService {
-    pub fn new(db: PgPool, cache: DynCacheService, config: AppConfig) -> Self {
+    pub fn new(db: Database, cache: DynCacheService, config: AppConfig) -> Self {
         Self { db, cache, config }
     }
 
@@ -54,9 +55,9 @@ impl UserService {
     pub async fn register(&self, dto: UserRegisterRequestDto) -> Result<UserSerializer, AppError> {
         self.validate_password(&dto.password)?;
 
-        let existing = sqlx::query_as::<_, User>("SELECT id, name, email, password_digest, role, status, created_at, updated_at, deleted_at FROM users WHERE email = $1 AND deleted_at IS NULL")
-            .bind(&dto.email)
-            .fetch_optional(&self.db)
+        let collection = self.db.collection::<User>("users");
+        let existing = collection
+            .find_one(doc! { "email": &dto.email, "deleted_at": null })
             .await?;
 
         if existing.is_some() {
@@ -72,23 +73,19 @@ impl UserService {
             .map_err(|e| AppError::Authentication(format!("Password hashing failure: {}", e)))?
             .to_string();
 
-        let mut tx = self.db.begin().await?;
-        let user = sqlx::query_as::<_, User>(
-            r#"
-            INSERT INTO users (name, email, password_digest, role, status)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, name, email, password_digest, role, status, created_at, updated_at, deleted_at
-            "#,
-        )
-        .bind(&dto.name)
-        .bind(&dto.email)
-        .bind(&password_digest)
-        .bind(dto.role.unwrap_or(1))
-        .bind(dto.status.unwrap_or(1))
-        .fetch_one(&mut *tx)
-        .await?;
+        let user = User {
+            id: Uuid::new_v4(),
+            name: dto.name.clone(),
+            email: dto.email.clone(),
+            password_digest,
+            role: dto.role.unwrap_or(1),
+            status: dto.status.unwrap_or(1),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: None,
+        };
 
-        tx.commit().await?;
+        collection.insert_one(&user).await?;
 
         self.invalidate_users_index().await;
 
@@ -96,9 +93,9 @@ impl UserService {
     }
 
     pub async fn login(&self, dto: UserLoginRequestDto) -> Result<UserLoginResponseDto, AppError> {
-        let user_result = sqlx::query_as::<_, User>("SELECT id, name, email, password_digest, role, status, created_at, updated_at, deleted_at FROM users WHERE email = $1 AND deleted_at IS NULL")
-            .bind(&dto.email)
-            .fetch_optional(&self.db)
+        let collection = self.db.collection::<User>("users");
+        let user_result = collection
+            .find_one(doc! { "email": &dto.email, "deleted_at": null })
             .await?;
 
         let (user, is_valid) = match user_result {
@@ -193,31 +190,20 @@ impl UserService {
             .map(|r| if r == "admin" { 0 } else { 1 });
         let deleted_filter = params.deleted.unwrap_or(false);
 
-        let mut query = "SELECT id, name, email, password_digest, role, status, created_at, updated_at, deleted_at FROM users WHERE 1=1".to_string();
-        let mut count_query = "SELECT COUNT(*) FROM users WHERE 1=1".to_string();
+        let collection = self.db.collection::<User>("users");
+        let mut filter = doc! {};
 
         if deleted_filter {
-            query.push_str(" AND deleted_at IS NOT NULL");
-            count_query.push_str(" AND deleted_at IS NOT NULL");
+            filter.insert("deleted_at", doc! { "$ne": null });
         } else {
-            query.push_str(" AND deleted_at IS NULL");
-            count_query.push_str(" AND deleted_at IS NULL");
+            filter.insert("deleted_at", mongodb::bson::Bson::Null);
         }
 
-        let mut bind_params = 1;
-
-        if role_filter.is_some() {
-            query.push_str(&format!(" AND role = ${}", bind_params));
-            count_query.push_str(&format!(" AND role = ${}", bind_params));
-            bind_params += 1;
-        }
-
-        let mut count_q = sqlx::query_as::<_, (i64,)>(&count_query);
         if let Some(r) = role_filter {
-            count_q = count_q.bind(r);
+            filter.insert("role", r);
         }
-        let total_count = count_q.fetch_one(&self.db).await?;
-        let total_count = total_count.0 as u32;
+
+        let total_count = collection.count_documents(filter.clone()).await? as u32;
 
         let total_pages = if total_count == 0 {
             1
@@ -225,21 +211,19 @@ impl UserService {
             (total_count as f32 / params.get_per_page() as f32).ceil() as u32
         };
 
-        query.push_str(&format!(
-            " ORDER BY created_at DESC LIMIT ${} OFFSET ${}",
-            bind_params,
-            bind_params + 1
-        ));
+        let skip = params.offset() as u64;
+        let limit = params.get_per_page() as i64;
+        let find_options = mongodb::options::FindOptions::builder()
+            .sort(doc! { "created_at": -1 })
+            .skip(skip)
+            .limit(limit)
+            .build();
 
-        let mut users_q = sqlx::query_as::<_, User>(&query);
-        if let Some(r) = role_filter {
-            users_q = users_q.bind(r);
+        let mut cursor = collection.find(filter).with_options(find_options).await?;
+        let mut users = Vec::new();
+        while cursor.advance().await? {
+            users.push(cursor.deserialize_current()?);
         }
-        let users = users_q
-            .bind(params.get_per_page() as i64)
-            .bind(params.offset() as i64)
-            .fetch_all(&self.db)
-            .await?;
 
         let response = PaginatedResponse {
             status: 200,
@@ -281,9 +265,9 @@ impl UserService {
             return Ok(cached_user);
         }
 
-        let user = sqlx::query_as::<_, User>("SELECT id, name, email, password_digest, role, status, created_at, updated_at, deleted_at FROM users WHERE id = $1 AND deleted_at IS NULL")
-            .bind(user_id)
-            .fetch_optional(&self.db)
+        let collection = self.db.collection::<User>("users");
+        let user = collection
+            .find_one(doc! { "id": user_id, "deleted_at": null })
             .await?
             .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -303,9 +287,9 @@ impl UserService {
     pub async fn create_user(&self, dto: UserCreateRequestDto) -> Result<UserSerializer, AppError> {
         self.validate_password(&dto.password)?;
 
-        let existing = sqlx::query_as::<_, User>("SELECT id, name, email, password_digest, role, status, created_at, updated_at, deleted_at FROM users WHERE email = $1 AND deleted_at IS NULL")
-            .bind(&dto.email)
-            .fetch_optional(&self.db)
+        let collection = self.db.collection::<User>("users");
+        let existing = collection
+            .find_one(doc! { "email": &dto.email, "deleted_at": null })
             .await?;
 
         if existing.is_some() {
@@ -320,23 +304,19 @@ impl UserService {
             .map_err(|e| AppError::Authentication(format!("Hashing error: {}", e)))?
             .to_string();
 
-        let mut tx = self.db.begin().await?;
-        let user = sqlx::query_as::<_, User>(
-            r#"
-            INSERT INTO users (name, email, password_digest, role, status)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, name, email, password_digest, role, status, created_at, updated_at, deleted_at
-            "#,
-        )
-        .bind(&dto.name)
-        .bind(&dto.email)
-        .bind(&password_digest)
-        .bind(dto.role.unwrap_or(1))
-        .bind(dto.status.unwrap_or(1))
-        .fetch_one(&mut *tx)
-        .await?;
+        let user = User {
+            id: Uuid::new_v4(),
+            name: dto.name.clone(),
+            email: dto.email.clone(),
+            password_digest,
+            role: dto.role.unwrap_or(1),
+            status: dto.status.unwrap_or(1),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: None,
+        };
 
-        tx.commit().await?;
+        collection.insert_one(&user).await?;
 
         self.invalidate_users_index().await;
 
@@ -348,11 +328,10 @@ impl UserService {
         user_id: Uuid,
         dto: UserUpdateRequestDto,
     ) -> Result<UserSerializer, AppError> {
-        let mut tx = self.db.begin().await?;
+        let collection = self.db.collection::<User>("users");
 
-        let existing = sqlx::query_as::<_, User>("SELECT id, name, email, password_digest, role, status, created_at, updated_at, deleted_at FROM users WHERE id = $1 FOR UPDATE")
-            .bind(user_id)
-            .fetch_optional(&mut *tx)
+        let existing = collection
+            .find_one(doc! { "id": user_id })
             .await?
             .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -363,11 +342,9 @@ impl UserService {
         if let Some(ref new_email) = dto.email
             && new_email != &existing.email
         {
-            let email_exists = sqlx::query_as::<_, User>("SELECT id, name, email, password_digest, role, status, created_at, updated_at, deleted_at FROM users WHERE email = $1 AND id != $2 AND deleted_at IS NULL")
-                    .bind(new_email)
-                    .bind(user_id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
+            let email_exists = collection
+                .find_one(doc! { "email": new_email, "id": { "$ne": user_id }, "deleted_at": null })
+                .await?;
 
             if email_exists.is_some() {
                 return Err(AppError::Conflict(
@@ -380,47 +357,38 @@ impl UserService {
             self.validate_password(pwd)?;
             let salt = SaltString::generate(&mut OsRng);
             let argon2 = Argon2::default();
-            Some(
-                argon2
-                    .hash_password(pwd.as_bytes(), &salt)
-                    .map_err(|e| {
-                        AppError::Authentication(format!("Password hashing failure: {}", e))
-                    })?
-                    .to_string(),
-            )
+            argon2
+                .hash_password(pwd.as_bytes(), &salt)
+                .map_err(|e| AppError::Authentication(format!("Password hashing failure: {}", e)))?
+                .to_string()
         } else {
-            None
+            existing.password_digest.clone()
         };
 
         let has_deleted_at = dto.deleted_at.is_some();
         let deleted_at_val = dto.deleted_at.flatten();
 
-        let user = sqlx::query_as::<_, User>(
-            r#"
-            UPDATE users
-            SET name = COALESCE($1, name),
-                email = COALESCE($2, email),
-                role = COALESCE($3, role),
-                status = COALESCE($4, status),
-                password_digest = COALESCE($5, password_digest),
-                deleted_at = CASE WHEN $6 THEN $7 ELSE deleted_at END,
-                updated_at = NOW()
-            WHERE id = $8
-            RETURNING id, name, email, password_digest, role, status, created_at, updated_at, deleted_at
-            "#,
-        )
-        .bind(&dto.name)
-        .bind(&dto.email)
-        .bind(dto.role)
-        .bind(dto.status)
-        .bind(&password_digest)
-        .bind(has_deleted_at)
-        .bind(deleted_at_val)
-        .bind(user_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let updated_deleted_at = if has_deleted_at {
+            deleted_at_val
+        } else {
+            existing.deleted_at
+        };
 
-        tx.commit().await?;
+        let user = User {
+            id: user_id,
+            name: dto.name.clone().unwrap_or(existing.name),
+            email: dto.email.clone().unwrap_or(existing.email),
+            role: dto.role.unwrap_or(existing.role),
+            status: dto.status.unwrap_or(existing.status),
+            password_digest,
+            created_at: existing.created_at,
+            updated_at: Utc::now(),
+            deleted_at: updated_deleted_at,
+        };
+
+        collection
+            .replace_one(doc! { "id": user_id }, &user)
+            .await?;
 
         let cache_key = format!("user:profile:{}", user_id);
         let _ = self.cache.delete(&cache_key).await;
@@ -441,21 +409,20 @@ impl UserService {
     }
 
     pub async fn soft_delete_user(&self, user_id: Uuid) -> Result<(), AppError> {
-        let mut tx = self.db.begin().await?;
+        let collection = self.db.collection::<User>("users");
 
-        let result =
-            sqlx::query("UPDATE users SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL")
-                .bind(user_id)
-                .execute(&mut *tx)
-                .await?;
+        let result = collection
+            .update_one(
+                doc! { "id": user_id, "deleted_at": null },
+                doc! { "$set": { "deleted_at": Utc::now() } },
+            )
+            .await?;
 
-        if result.rows_affected() == 0 {
+        if result.modified_count == 0 {
             return Err(AppError::NotFound(
                 "User not found or already deleted".to_string(),
             ));
         }
-
-        tx.commit().await?;
 
         let cache_key = format!("user:profile:{}", user_id);
         let _ = self.cache.delete(&cache_key).await;

@@ -33,17 +33,21 @@ fn generate_test_token(user_id: uuid::Uuid, role: i32) -> String {
     .unwrap()
 }
 
-async fn generate_db_token(db: &sqlx::PgPool, user_id: uuid::Uuid, role: i32) -> String {
+async fn generate_db_token(db: &mongodb::Database, user_id: uuid::Uuid, role: i32) -> String {
     let email = format!("user_{}_{}@example.com", role, user_id);
     let pwd_digest = "$argon2id$v=19$m=19456,t=2,p=1$mIk38++6ZCEyzKo+edgXEw$/h0anRjDkzS46suJM6/P3+DySS3qp1+6jXtNjd6UMTs";
-    sqlx::query("INSERT INTO users (id, name, email, password_digest, role, status) VALUES ($1, $2, $3, $4, $5, $6)")
-        .bind(user_id)
-        .bind("Test User")
-        .bind(email)
-        .bind(pwd_digest)
-        .bind(role)
-        .bind(1)
-        .execute(db)
+    db.collection::<rustom::models::User>("users")
+        .insert_one(rustom::models::User {
+            id: user_id,
+            name: "Test User".to_string(),
+            email,
+            password_digest: pwd_digest.to_string(),
+            role,
+            status: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: None,
+        })
         .await
         .unwrap();
 
@@ -88,18 +92,20 @@ async fn test_get_me_authenticated() {
     let email = format!("me_{}@example.com", user_id);
     let password_hash = "$argon2id$v=19$m=19456,t=2,p=1$mIk38++6ZCEyzKo+edgXEw$/h0anRjDkzS46suJM6/P3+DySS3qp1+6jXtNjd6UMTs";
 
-    sqlx::query(
-        r#"
-        INSERT INTO users (id, name, email, password_digest, role, status)
-        VALUES ($1, 'Me User', $2, $3, 1, 1)
-        "#,
-    )
-    .bind(user_id)
-    .bind(&email)
-    .bind(password_hash)
-    .execute(&db)
-    .await
-    .unwrap();
+    db.collection::<rustom::models::User>("users")
+        .insert_one(rustom::models::User {
+            id: user_id,
+            name: "Me User".to_string(),
+            email: email.clone(),
+            password_digest: password_hash.to_string(),
+            role: 1,
+            status: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: None,
+        })
+        .await
+        .unwrap();
 
     let token = generate_test_token(user_id, 1);
 
@@ -178,18 +184,20 @@ async fn test_user_registration_duplicate_email() {
     // Seed the first user
     let user_id = uuid::Uuid::new_v4();
     let password_hash = "$argon2id$v=19$m=19456,t=2,p=1$mIk38++6ZCEyzKo+edgXEw$/h0anRjDkzS46suJM6/P3+DySS3qp1+6jXtNjd6UMTs";
-    sqlx::query(
-        r#"
-        INSERT INTO users (id, name, email, password_digest, role, status)
-        VALUES ($1, 'Existing User', $2, $3, 1, 1)
-        "#,
-    )
-    .bind(user_id)
-    .bind(&email)
-    .bind(password_hash)
-    .execute(&db)
-    .await
-    .unwrap();
+    db.collection::<rustom::models::User>("users")
+        .insert_one(rustom::models::User {
+            id: user_id,
+            name: "Existing User".to_string(),
+            email: email.clone(),
+            password_digest: password_hash.to_string(),
+            role: 1,
+            status: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: None,
+        })
+        .await
+        .unwrap();
 
     // Try to register again with same email
     let payload = json!({
@@ -269,18 +277,20 @@ async fn test_delete_user_as_admin_vs_standard_user() {
     let target_user_id = uuid::Uuid::new_v4();
     let email = format!("target_{}@example.com", target_user_id);
     let password_hash = "$argon2id$v=19$m=19456,t=2,p=1$mIk38++6ZCEyzKo+edgXEw$/h0anRjDkzS46suJM6/P3+DySS3qp1+6jXtNjd6UMTs";
-    sqlx::query(
-        r#"
-        INSERT INTO users (id, name, email, password_digest, role, status)
-        VALUES ($1, 'Target User', $2, $3, 1, 1)
-        "#,
-    )
-    .bind(target_user_id)
-    .bind(&email)
-    .bind(password_hash)
-    .execute(&db)
-    .await
-    .unwrap();
+    db.collection::<rustom::models::User>("users")
+        .insert_one(rustom::models::User {
+            id: target_user_id,
+            name: "Target User".to_string(),
+            email: email.clone(),
+            password_digest: password_hash.to_string(),
+            role: 1,
+            status: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: None,
+        })
+        .await
+        .unwrap();
 
     // 1. Try to delete as standard user (forbidden)
     let standard_user_id = uuid::Uuid::new_v4();
@@ -324,18 +334,20 @@ async fn test_update_user_password() {
     let email = format!("update_pwd_{}@example.com", user_id);
     let initial_hash = "$argon2id$v=19$m=19456,t=2,p=1$mIk38++6ZCEyzKo+edgXEw$/h0anRjDkzS46suJM6/P3+DySS3qp1+6jXtNjd6UMTs"; // for "password"
 
-    sqlx::query(
-        r#"
-        INSERT INTO users (id, name, email, password_digest, role, status)
-        VALUES ($1, 'Update Password User', $2, $3, 1, 1)
-        "#,
-    )
-    .bind(user_id)
-    .bind(&email)
-    .bind(initial_hash)
-    .execute(&db)
-    .await
-    .unwrap();
+    db.collection::<rustom::models::User>("users")
+        .insert_one(rustom::models::User {
+            id: user_id,
+            name: "Update Password User".to_string(),
+            email: email.clone(),
+            password_digest: initial_hash.to_string(),
+            role: 1,
+            status: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: None,
+        })
+        .await
+        .unwrap();
 
     let token = generate_test_token(user_id, 1);
 
@@ -360,12 +372,13 @@ async fn test_update_user_password() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify the password digest has changed in the database
-    let updated_password_digest: String =
-        sqlx::query_scalar("SELECT password_digest FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_one(&db)
-            .await
-            .unwrap();
+    let updated_user = db
+        .collection::<rustom::models::User>("users")
+        .find_one(mongodb::bson::doc! { "id": user_id })
+        .await
+        .unwrap()
+        .unwrap();
+    let updated_password_digest = updated_user.password_digest;
 
     assert_ne!(updated_password_digest, initial_hash);
 }
@@ -380,18 +393,20 @@ async fn test_admin_can_restore_deleted_user() {
     let email = format!("deleted_user_{}@example.com", user_id);
     let password_hash = "$argon2id$v=19$m=19456,t=2,p=1$mIk38++6ZCEyzKo+edgXEw$/h0anRjDkzS46suJM6/P3+DySS3qp1+6jXtNjd6UMTs";
 
-    sqlx::query(
-        r#"
-        INSERT INTO users (id, name, email, password_digest, role, status, deleted_at)
-        VALUES ($1, 'Deleted User', $2, $3, 1, 1, NOW())
-        "#,
-    )
-    .bind(user_id)
-    .bind(&email)
-    .bind(password_hash)
-    .execute(&db)
-    .await
-    .unwrap();
+    db.collection::<rustom::models::User>("users")
+        .insert_one(rustom::models::User {
+            id: user_id,
+            name: "Deleted User".to_string(),
+            email: email.clone(),
+            password_digest: password_hash.to_string(),
+            role: 1,
+            status: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: Some(Utc::now()),
+        })
+        .await
+        .unwrap();
 
     // 2. Perform patch update as admin to set deleted_at to null
     let admin_id = uuid::Uuid::new_v4();
@@ -418,12 +433,13 @@ async fn test_admin_can_restore_deleted_user() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify it is null in database
-    let deleted_at: Option<chrono::DateTime<chrono::Utc>> =
-        sqlx::query_scalar("SELECT deleted_at FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_one(&db)
-            .await
-            .unwrap();
+    let updated_user = db
+        .collection::<rustom::models::User>("users")
+        .find_one(mongodb::bson::doc! { "id": user_id })
+        .await
+        .unwrap()
+        .unwrap();
+    let deleted_at = updated_user.deleted_at;
 
     assert!(deleted_at.is_none());
 }
@@ -438,18 +454,20 @@ async fn test_non_admin_cannot_update_deleted_at() {
     let email = format!("user_to_check_{}@example.com", user_id);
     let password_hash = "$argon2id$v=19$m=19456,t=2,p=1$mIk38++6ZCEyzKo+edgXEw$/h0anRjDkzS46suJM6/P3+DySS3qp1+6jXtNjd6UMTs";
 
-    sqlx::query(
-        r#"
-        INSERT INTO users (id, name, email, password_digest, role, status, deleted_at)
-        VALUES ($1, 'Test User', $2, $3, 1, 1, NOW())
-        "#,
-    )
-    .bind(user_id)
-    .bind(&email)
-    .bind(password_hash)
-    .execute(&db)
-    .await
-    .unwrap();
+    db.collection::<rustom::models::User>("users")
+        .insert_one(rustom::models::User {
+            id: user_id,
+            name: "Test User".to_string(),
+            email: email.clone(),
+            password_digest: password_hash.to_string(),
+            role: 1,
+            status: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: Some(Utc::now()),
+        })
+        .await
+        .unwrap();
 
     // Perform patch update as self (non-admin, role=1) trying to update deleted_at
     let token = generate_test_token(user_id, 1);

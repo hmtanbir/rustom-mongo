@@ -29,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
     // 3. Initialize Postgres connection pool (runs migrations inside)
     let db = infrastructure::init_db(&config)
         .await
-        .context("Failed to initialize PostgreSQL database")?;
+        .context("Failed to initialize MongoDB database")?;
 
     // 4. Initialize Redis cache pool
     let redis = infrastructure::init_redis(&config)
