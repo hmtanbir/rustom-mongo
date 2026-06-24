@@ -3,7 +3,6 @@ name: 'rustom'
 services:
   mongodb:
     image: mongo:4.4
-    platform: linux/arm64
     container_name: rustom_mongodb
     ports:
       - "${MONGO_PORT}:27017"
