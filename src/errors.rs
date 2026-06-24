@@ -11,7 +11,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("Internal database error: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(#[from] mongodb::error::Error),
 
     #[error("Cache error: {0}")]
     Cache(String),

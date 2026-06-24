@@ -1,5 +1,5 @@
 use axum::Router;
-use sqlx::PgPool;
+use mongodb::Database;
 use std::sync::Arc;
 
 use rustom::app_state::AppState;
@@ -36,7 +36,7 @@ impl QueueService for MockQueue {
     }
 }
 
-pub async fn setup_app() -> (Router, PgPool) {
+pub async fn setup_app() -> (Router, Database) {
     // Note: To disable encryption for tests, set API_PAYLOAD_ENCRYPTION_ENABLED=false
     // in the environment running the tests (e.g. in .env.test or CI config).
     // Mutating std::env::set_var here is unsafe in Rust 2024 and causes data races.
@@ -48,12 +48,19 @@ pub async fn setup_app() -> (Router, PgPool) {
     });
 
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-        let user = std::env::var("POSTGRES_USER").unwrap_or_else(|_| "postgres".to_string());
-        let pass = std::env::var("POSTGRES_PASSWORD").unwrap_or_else(|_| "postgres".to_string());
-        let host = std::env::var("POSTGRES_HOST").unwrap_or_else(|_| "localhost".to_string());
-        let port = std::env::var("POSTGRES_PORT").unwrap_or_else(|_| "5432".to_string());
-        let db_name = std::env::var("POSTGRES_DB").unwrap_or_else(|_| "rustom_test".to_string());
-        format!("postgres://{}:{}@{}:{}/{}", user, pass, host, port, db_name)
+        let host = std::env::var("MONGO_HOST").unwrap_or_else(|_| "localhost".to_string());
+        let port = std::env::var("MONGO_PORT").unwrap_or_else(|_| "27017".to_string());
+        let db_name = std::env::var("MONGO_DB").unwrap_or_else(|_| "rustom_test".to_string());
+        let user = std::env::var("MONGO_USER").unwrap_or_default();
+        let pass = std::env::var("MONGO_PASSWORD").unwrap_or_default();
+        if !user.is_empty() && !pass.is_empty() {
+            format!(
+                "mongodb://{}:{}@{}:{}/{}?authSource=admin",
+                user, pass, host, port, db_name
+            )
+        } else {
+            format!("mongodb://{}:{}/{}", host, port, db_name)
+        }
     });
 
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| {
@@ -95,7 +102,7 @@ pub async fn setup_app() -> (Router, PgPool) {
 
     let db = rustom::infrastructure::init_db(&config)
         .await
-        .expect("Failed to initialize test DB and run migrations");
+        .expect("Failed to initialize test DB");
 
     // Clean all tables exactly once at the start of the test suite run to prevent race conditions
     static DB_CLEANED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -108,10 +115,11 @@ pub async fn setup_app() -> (Router, PgPool) {
         )
         .is_ok()
     {
-        sqlx::query("TRUNCATE TABLE users CASCADE;")
-            .execute(&db)
+        let collection = db.collection::<rustom::models::User>("users");
+        collection
+            .delete_many(mongodb::bson::doc! {})
             .await
-            .expect("Failed to truncate tables");
+            .expect("Failed to truncate users collection");
     }
 
     let cache_service = Arc::new(MockCache) as DynCacheService;

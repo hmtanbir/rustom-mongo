@@ -164,9 +164,10 @@ where
 }
 
 /// Core domain representation of a User in the database.
-#[derive(Clone, Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct User {
     /// Unique identifier for user.
+    #[serde(with = "bson::serde_helpers::uuid_1_as_binary")]
     pub id: Uuid,
     /// Email address of user.
     pub email: String,

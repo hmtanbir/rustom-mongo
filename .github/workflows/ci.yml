@@ -30,15 +30,18 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      postgres:
-        image: postgres
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: rustom_test
+      mongodb:
+        image: mongo:6
         ports:
-          - 5432:5432
-        options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
+          - 27017:27017
+        env:
+          MONGO_INITDB_ROOT_USERNAME: mongodb
+          MONGO_INITDB_ROOT_PASSWORD: mongodb
+        options: >-
+          --health-cmd "mongosh -u mongodb -p mongodb --authenticationDatabase admin --eval 'db.adminCommand({ping: 1})' --quiet"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
       redis:
         image: redis:alpine
@@ -70,24 +73,13 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
-
-      - name: Prepare test database
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/rustom_test
-        run: |
-          sqlx database create
-          sqlx migrate run --source db/migrations
-
       - name: Run tests
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/rustom_test
-          HOST: 0.0.0.0
-          PORT: 3000
-          REDIS_URL: redis://localhost:6379/0
-          RABBITMQ_URL: amqp://guest:guest@localhost:5672/%2f
-          JWT_SECRET: ci_test_jwt_secret_key_123
-          API_PAYLOAD_ENCRYPTION_ENABLED: false
-          API_GATEWAY_KEY: api_gateway_key
+          APP_ENV: test
+          DATABASE_URL: mongodb://mongodb:mongodb@localhost:27017/rustom_test?authSource=admin
+          REDIS_PASSWORD: ""
+          RABBITMQ_USER: guest
+          RABBITMQ_PASSWORD: guest
+          API_PAYLOAD_ENCRYPTION_ENABLED: "false"
+          API_GATEWAY_KEY: API_GATEWAY
         run: cargo test
